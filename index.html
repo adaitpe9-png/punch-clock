@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>打卡系統</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+:root{--green:#06C755;--gd:#049440;--gl:#E8F8EE;--red:#E53935;--rl:#FEECEC;--blue:#1A73E8;--bl:#EAF2FF;--bg:#F5F6F8;--card:#fff;--text:#1A1A2E;--muted:#6B7280;--border:#E5E7EB;--r:16px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:40px}
+.header{background:var(--green);color:#fff;padding:20px 20px 36px}
+.htop{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.hlogo{font-size:18px;font-weight:700}
+.hclk{font-size:13px;opacity:.88}
+.hdate{font-size:13px;opacity:.75}
+.avwrap{margin:-28px 16px 0;background:var(--card);border-radius:var(--r);padding:20px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+.av{width:52px;height:52px;border-radius:50%;background:var(--gl);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:var(--gd);flex-shrink:0;overflow:hidden}
+.av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.uname{font-size:17px;font-weight:600}
+.uid{font-size:12px;color:var(--muted);margin-top:2px}
+.gbanner{margin:12px 16px 0;background:#FFF7E6;border:1px solid #FDE68A;border-radius:10px;padding:10px 14px;font-size:12px;color:#92400E;display:none}
+.vrow{display:flex;gap:10px;margin:12px 16px 0}
+.vc{flex:1;border-radius:12px;padding:12px 14px;border:1.5px solid var(--border);background:var(--card);transition:all .3s}
+.vc.pass{border-color:var(--green);background:var(--gl)}
+.vc.fail{border-color:var(--red);background:var(--rl)}
+.vc.checking{border-color:#F59E0B;background:#FFF7E6}
+.vcl{font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:600;letter-spacing:.5px}
+.vc.pass .vcl,.vc.pass .vcs{color:var(--gd)}
+.vc.fail .vcl,.vc.fail .vcs{color:var(--red)}
+.vc.checking .vcl,.vc.checking .vcs{color:#92400E}
+.vcs{font-size:13px;font-weight:600}
+.vcd{font-size:11px;margin-top:3px;opacity:.75}
+.rcbtn{display:block;width:calc(100% - 32px);margin:10px 16px 0;padding:11px;border:1.5px solid var(--border);border-radius:12px;background:var(--card);font-size:14px;font-weight:600;cursor:pointer;color:var(--text);text-align:center}
+.stcard{margin:12px 16px 0;background:var(--card);border-radius:var(--r);padding:18px 20px;box-shadow:0 1px 6px rgba(0,0,0,.05)}
+.stlbl{font-size:12px;color:var(--muted);margin-bottom:6px}
+.stbdg{display:inline-flex;align-items:center;gap:6px;font-size:15px;font-weight:600;padding:6px 14px;border-radius:20px}
+.stbdg.working{background:var(--gl);color:var(--gd)}
+.stbdg.done{background:var(--rl);color:var(--red)}
+.stbdg.none{background:#F3F4F6;color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+.trow{display:flex;gap:10px;margin-top:14px}
+.ti{flex:1;background:var(--bg);border-radius:10px;padding:10px 12px}
+.til{font-size:11px;color:var(--muted);margin-bottom:3px}
+.tiv{font-size:15px;font-weight:600}
+.srow{display:flex;gap:10px;margin:12px 16px 0}
+.sc{flex:1;background:var(--card);border-radius:12px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.04);text-align:center}
+.sv{font-size:22px;font-weight:700}
+.sl{font-size:11px;color:var(--muted);margin-top:2px}
+.brow{margin:14px 16px 0;display:flex;gap:10px}
+.btn{flex:1;padding:16px;border:none;border-radius:var(--r);font-size:16px;font-weight:700;cursor:pointer;transition:opacity .15s,transform .1s}
+.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.35;cursor:default}
+.bin{background:var(--green);color:#fff}
+.bout{background:var(--red);color:#fff}
+.sectitle{margin:20px 16px 8px;font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.6px}
+.rlist{margin:0 16px;display:flex;flex-direction:column;gap:8px}
+.rcard{background:var(--card);border-radius:12px;padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+.rtop{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.rdate{font-size:13px;font-weight:600}
+.rbdg{font-size:11px;padding:2px 10px;border-radius:20px;font-weight:600}
+.rbdg.done{background:var(--bl);color:var(--blue)}
+.rbdg.working{background:var(--gl);color:var(--gd)}
+.rtimes{display:flex;gap:16px;font-size:13px;color:var(--muted);flex-wrap:wrap}
+.rtimes span strong{color:var(--text)}
+.loading{text-align:center;padding:60px 20px;color:var(--muted);font-size:14px}
+.apibtn{display:block;width:calc(100% - 32px);margin:10px 16px 0;padding:10px;border:1.5px dashed #ccc;border-radius:12px;background:#fff;font-size:13px;color:#6B7280;cursor:pointer;text-align:center}
+#test-result{margin:6px 16px 0;font-size:12px;color:#6B7280;text-align:center}
+</style>
+</head>
+<body>
+<div id="loading" class="loading">載入中...</div>
+<div id="app" style="display:none">
+  <div class="header">
+    <div class="htop"><div class="hlogo">📋 打卡系統</div><div class="hclk" id="clk"></div></div>
+    <div class="hdate" id="dt"></div>
+  </div>
+  <div class="avwrap">
+    <div class="av" id="avbox"><span id="avini"></span></div>
+    <div><div class="uname" id="uname">載入中...</div><div class="uid" id="uid"></div></div>
+  </div>
+  <div class="gbanner" id="gbanner">⚠️ 非 LINE 環境（測試模式）</div>
+  <div class="vrow">
+    <div class="vc checking" id="vc-gps">
+      <div class="vcl">📍 GPS 定位</div>
+      <div class="vcs" id="gps-s">偵測中...</div>
+      <div class="vcd" id="gps-d"></div>
+    </div>
+    <div class="vc checking" id="vc-wifi">
+      <div class="vcl">📶 WiFi 連線</div>
+      <div class="vcs" id="wifi-s">偵測中...</div>
+      <div class="vcd" id="wifi-d"></div>
+    </div>
+  </div>
+  <button class="rcbtn" id="rcbtn" onclick="runVerify()">🔄 重新驗證</button>
+  <div class="stcard">
+    <div class="stlbl">今日狀態</div>
+    <div class="stbdg none" id="stbdg"><span class="dot"></span><span id="sttxt">尚未打卡</span></div>
+    <div class="trow">
+      <div class="ti"><div class="til">上班時間</div><div class="tiv" id="t-in">--:--</div></div>
+      <div class="ti"><div class="til">下班時間</div><div class="tiv" id="t-out">--:--</div></div>
+      <div class="ti"><div class="til">今日工時</div><div class="tiv" id="t-hrs">0 h</div></div>
+    </div>
+  </div>
+  <div class="srow">
+    <div class="sc"><div class="sv" id="s-days">0</div><div class="sl">本月出勤天數</div></div>
+    <div class="sc"><div class="sv" id="s-hrs">0</div><div class="sl">本月累計工時</div></div>
+  </div>
+  <div class="brow">
+    <button class="btn bin" id="btn-in" onclick="punch('in')" disabled>↗ 上班打卡</button>
+    <button class="btn bout" id="btn-out" onclick="punch('out')" disabled>↙ 下班打卡</button>
+  </div>
+  <button class="apibtn" onclick="testAPI()">🔧 測試 API 連線</button>
+  <div id="test-result"></div>
+  <div class="sectitle">最近打卡記錄</div>
+  <div class="rlist" id="rlist"><div style="text-align:center;color:#9CA3AF;font-size:13px;padding:12px">載入中...</div></div>
+</div>
+
+<script>
+// ============================================================
+// 設定區
+// ============================================================
+const LIFF_ID = '2010418661-OmF2lZI5';
+const API_URL  = 'https://script.google.com/macros/s/AKfycbwX6xfcT3uVgltUXRFnVy-05mUm98jaSInPq88fcyiLrQ01eK8iHCDaiwCMHin_z1nu/exec';
+const CO_LAT   = 24.6693505;
+const CO_LNG   = 121.7835167;
+const RADIUS   = 200;
+const TZ       = 'Asia/Taipei';
+// ============================================================
+
+let userId = null, userName = '';
+let gpsOk = false, wifiOk = false;
+let todayCache = null;
+
+// ---- 時間工具 ----
+function pad(n) { return String(n).padStart(2,'0'); }
+
+function twNow() {
+  return new Date(new Date().toLocaleString('en-US', {timeZone: TZ}));
+}
+
+function todayStr() {
+  const d = twNow();
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+}
+
+function fmtDate(d) {
+  if (!d) return '';
+  const s = d.toString();
+  if (s.includes('T')) {
+    const tw = new Date(new Date(s).toLocaleString('en-US', {timeZone: TZ}));
+    return tw.getFullYear() + '-' + pad(tw.getMonth()+1) + '-' + pad(tw.getDate());
+  }
+  return s.slice(0, 10);
+}
+
+function fmtTime(t) {
+  if (!t) return '--:--';
+  const s = t.toString();
+  if (s.includes('T')) {
+    const tw = new Date(new Date(s).toLocaleString('en-US', {timeZone: TZ}));
+    return pad(tw.getHours()) + ':' + pad(tw.getMinutes());
+  }
+  return s.slice(0, 5);
+}
+
+function diffH(inT, outT) {
+  try {
+    const base = todayStr();
+    return ((new Date(base + ' ' + outT) - new Date(base + ' ' + inT)) / 3600000);
+  } catch(e) { return 0; }
+}
+
+// ---- 時鐘 ----
+setInterval(function() {
+  const d = twNow();
+  document.getElementById('clk').textContent = pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+  document.getElementById('dt').textContent = d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日 '+['日','一','二','三','四','五','六'][d.getDay()]+'曜日';
+}, 1000);
+
+// ---- Toast 通知 ----
+function showMsg(t, type) {
+  var toasts = document.querySelectorAll('.x-toast');
+  for (var i = 0; i < toasts.length; i++) toasts[i].remove();
+  var bg = type === 'ok' ? '#0F6E56' : type === 'err' ? '#C62828' : '#B45309';
+  var div = document.createElement('div');
+  div.className = 'x-toast';
+  div.textContent = t;
+  div.style.cssText = 'position:fixed;top:16px;left:12px;right:12px;background:'+bg+';color:#fff;padding:16px 20px;border-radius:14px;font-size:15px;font-weight:600;z-index:99999;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.35);white-space:pre-line;';
+  document.body.appendChild(div);
+  setTimeout(function() { if (div.parentNode) div.remove(); }, 5000);
+}
+
+// ---- JSONP API ----
+function api(action, extra) {
+  extra = extra || {};
+  return new Promise(function(resolve, reject) {
+    var cbName = '_cb' + Date.now();
+    var params = 'action='+encodeURIComponent(action)+'&userId='+encodeURIComponent(userId||'')+'&userName='+encodeURIComponent(userName||'')+'&callback='+cbName;
+    var keys = Object.keys(extra);
+    for (var i = 0; i < keys.length; i++) {
+      params += '&' + encodeURIComponent(keys[i]) + '=' + encodeURIComponent(String(extra[keys[i]]));
+    }
+    var timeout = setTimeout(function() {
+      delete window[cbName];
+      var s = document.getElementById(cbName);
+      if (s) s.remove();
+      reject(new Error('連線逾時'));
+    }, 15000);
+
+    window[cbName] = function(data) {
+      clearTimeout(timeout);
+      delete window[cbName];
+      var s = document.getElementById(cbName);
+      if (s) s.remove();
+      resolve(data);
+    };
+
+    var script = document.createElement('script');
+    script.id = cbName;
+    script.src = API_URL + '?' + params;
+    script.onerror = function() {
+      clearTimeout(timeout);
+      delete window[cbName];
+      script.remove();
+      reject(new Error('載入失敗'));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+// ---- GPS ----
+function checkGPS() {
+  return new Promise(function(resolve) {
+    if (!navigator.geolocation) { resolve({ok:false, msg:'不支援 GPS ✗', d:''}); return; }
+    navigator.geolocation.getCurrentPosition(function(pos) {
+      var R=6371000, la1=pos.coords.latitude, lo1=pos.coords.longitude;
+      var dLa=(CO_LAT-la1)*Math.PI/180, dLo=(CO_LNG-lo1)*Math.PI/180;
+      var a=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(la1*Math.PI/180)*Math.cos(CO_LAT*Math.PI/180)*Math.sin(dLo/2)*Math.sin(dLo/2);
+      var m=Math.round(R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)));
+      var ok = m <= RADIUS;
+      resolve({ok:ok, msg:ok?'位置驗證通過 ✓':'超出範圍 ✗', d:'距公司 '+m+' 公尺（上限 '+RADIUS+' 公尺）'});
+    }, function(err) {
+      var em = {1:'請允許位置權限', 2:'無法取得位置', 3:'定位逾時'};
+      resolve({ok:false, msg:'定位失敗 ✗', d:em[err.code]||''});
+    }, {enableHighAccuracy:true, timeout:10000, maximumAge:0});
+  });
+}
+
+// ---- WiFi ----
+function checkWifi() {
+  var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (!c) return {ok:true, msg:'連線中 ✓', d:'無法偵測類型（預設通過）'};
+  var t = c.type || '';
+  if (['cellular','2g','3g','slow-2g'].indexOf(t) >= 0) return {ok:false, msg:'請連接 WiFi ✗', d:'目前使用行動網路'};
+  return {ok:true, msg:'WiFi 連線 ✓', d:t?'連線類型：'+t:'已連接網路'};
+}
+
+function setVC(id, state, msg, d) {
+  document.getElementById('vc-'+id).className = 'vc '+state;
+  document.getElementById(id+'-s').textContent = msg;
+  document.getElementById(id+'-d').textContent = d;
+}
+
+function updateBtns() {
+  var can = gpsOk && wifiOk;
+  var active = todayCache && todayCache.filter(function(r){return r.inTime && !r.outTime;})[0];
+  document.getElementById('btn-in').disabled = !can || !!active;
+  document.getElementById('btn-out').disabled = !can || !active;
+}
+
+async function runVerify() {
+  setVC('gps','checking','偵測中...','');
+  setVC('wifi','checking','偵測中...','');
+  gpsOk = false; wifiOk = false;
+  updateBtns();
+  var btn = document.getElementById('rcbtn');
+  btn.textContent = '🔄 驗證中...'; btn.disabled = true;
+
+  var wifi = checkWifi();
+  wifiOk = wifi.ok;
+  setVC('wifi', wifi.ok?'pass':'fail', wifi.msg, wifi.d);
+
+  var gps = await checkGPS();
+  gpsOk = gps.ok;
+  setVC('gps', gps.ok?'pass':'fail', gps.msg, gps.d);
+
+  btn.textContent = '🔄 重新驗證'; btn.disabled = false;
+  updateBtns();
+}
+
+// ---- 打卡 ----
+async function punch(type) {
+  showMsg('⏳ 打卡中...', 'warn');
+  try {
+    if (!gpsOk || !wifiOk) { showMsg('⚠️ 請先通過 GPS 與 WiFi 驗證', 'warn'); return; }
+
+    var now = twNow();
+    var timeStr = pad(now.getHours())+':'+pad(now.getMinutes())+':'+pad(now.getSeconds());
+    var today = todayStr();
+
+    if (type === 'in') {
+      if (!todayCache) todayCache = [];
+      todayCache.push({date:today, inTime:timeStr, outTime:'', hours:''});
+      renderStatus();
+      updateBtns();
+      showMsg('✓ 上班打卡成功！'+timeStr.slice(0,5)+'\n📍 GPS ✓  📶 WiFi ✓', 'ok');
+      try {
+        var r = await api('punchIn', {gps:String(gpsOk), wifi:String(wifiOk)});
+        if (!r.success) showMsg('⚠️ 儲存失敗：'+r.message, 'warn');
+      } catch(e) { showMsg('⚠️ 網路異常，資料可能未儲存', 'warn'); }
+
+    } else {
+      var active = null;
+      if (todayCache) {
+        for (var i = 0; i < todayCache.length; i++) {
+          if (todayCache[i].inTime && !todayCache[i].outTime) { active = todayCache[i]; break; }
+        }
+      }
+      if (!active) {
+        showMsg('🔄 重新載入記錄...', 'warn');
+        await loadToday();
+        if (todayCache) {
+          for (var j = 0; j < todayCache.length; j++) {
+            if (todayCache[j].inTime && !todayCache[j].outTime) { active = todayCache[j]; break; }
+          }
+        }
+      }
+      if (!active) { showMsg('❌ 找不到上班記錄', 'err'); return; }
+
+      var inParts = active.inTime.split(':');
+      var inDate = new Date(today);
+      inDate.setHours(+inParts[0], +inParts[1], +(inParts[2]||0));
+      var hrs = ((now - inDate) / 3600000).toFixed(1);
+      active.outTime = timeStr;
+      active.hours = hrs;
+      renderStatus();
+      updateBtns();
+      showMsg('✓ 下班打卡成功！工時 '+hrs+' 小時\n📍 GPS ✓  📶 WiFi ✓', 'ok');
+      try {
+        var r2 = await api('punchOut', {gps:String(gpsOk), wifi:String(wifiOk)});
+        if (!r2.success) showMsg('⚠️ 儲存失敗：'+r2.message, 'warn');
+      } catch(e) { showMsg('⚠️ 網路異常，資料可能未儲存', 'warn'); }
+    }
+  } catch(err) {
+    showMsg('❌ 錯誤：'+err.message, 'err');
+  }
+}
+
+// ---- 載入今日資料 ----
+async function loadToday() {
+  try {
+    var result = await api('getToday');
+    if (result.success) { todayCache = result.records; renderStatus(); }
+  } catch(e) {}
+}
+
+// ---- 載入歷史記錄 ----
+async function loadHistory() {
+  try {
+    var result = await api('getHistory');
+    if (result.success) renderHistory(result.records);
+  } catch(e) {
+    document.getElementById('rlist').innerHTML = '<div style="text-align:center;color:#9CA3AF;font-size:13px;padding:12px">無法載入記錄</div>';
+  }
+}
+
+// ---- 渲染今日狀態 ----
+function renderStatus() {
+  var records = todayCache || [];
+  var active = null, last = null;
+  for (var i = 0; i < records.length; i++) {
+    if (records[i].inTime && !records[i].outTime) active = records[i];
+    last = records[i];
+  }
+  var bdg = document.getElementById('stbdg');
+  bdg.className = 'stbdg ' + (active ? 'working' : records.length ? 'done' : 'none');
+  document.getElementById('sttxt').textContent = active ? '上班中' : records.length ? '已下班' : '尚未打卡';
+  document.getElementById('t-in').textContent = last ? fmtTime(last.inTime) : '--:--';
+  document.getElementById('t-out').textContent = (last && last.outTime) ? fmtTime(last.outTime) : '--:--';
+  var th = 0;
+  for (var j = 0; j < records.length; j++) {
+    if (records[j].outTime && records[j].inTime) th += diffH(records[j].inTime, records[j].outTime);
+  }
+  document.getElementById('t-hrs').textContent = th.toFixed(1) + ' h';
+}
+
+// ---- 渲染歷史記錄 ----
+function renderHistory(records) {
+  var mon = todayStr().slice(0, 7);
+  var days = 0, mh = 0;
+  var daySet = {};
+  for (var i = 0; i < records.length; i++) {
+    var r = records[i];
+    var d = fmtDate(r.date);
+    if (d && d.startsWith(mon)) {
+      if (r.outTime && !daySet[d]) { daySet[d] = true; days++; }
+      if (r.outTime && r.inTime) mh += diffH(r.inTime, r.outTime);
+    }
+  }
+  document.getElementById('s-days').textContent = days;
+  document.getElementById('s-hrs').textContent = mh.toFixed(1);
+
+  var list = document.getElementById('rlist');
+  if (!records.length) { list.innerHTML = '<div style="text-align:center;color:#9CA3AF;font-size:13px;padding:12px">尚無記錄</div>'; return; }
+  var html = '';
+  for (var k = 0; k < records.length; k++) {
+    var rec = records[k];
+    var hrs = (rec.outTime && rec.inTime) ? diffH(rec.inTime, rec.outTime).toFixed(1)+' h' : '--';
+    var bc = rec.outTime ? 'done' : 'working';
+    var bt = rec.outTime ? '完成' : '上班中';
+    html += '<div class="rcard"><div class="rtop"><div class="rdate">'+fmtDate(rec.date)+'</div><div class="rbdg '+bc+'">'+bt+'</div></div><div class="rtimes"><span>上班 <strong>'+fmtTime(rec.inTime)+'</strong></span><span>下班 <strong>'+(rec.outTime?fmtTime(rec.outTime):'--:--')+'</strong></span><span>工時 <strong>'+hrs+'</strong></span></div></div>';
+  }
+  list.innerHTML = html;
+}
+
+// ---- 測試 API ----
+async function testAPI() {
+  var el = document.getElementById('test-result');
+  el.textContent = '測試中...';
+  try {
+    var result = await api('getHistory');
+    if (result.success) {
+      el.style.color = '#0F6E56';
+      el.textContent = '✅ API 連線正常！history筆數：'+result.records.length;
+    } else {
+      el.style.color = '#E53935';
+      el.textContent = '❌ '+result.message;
+    }
+  } catch(e) {
+    el.style.color = '#E53935';
+    el.textContent = '❌ 連線失敗：'+e.message;
+  }
+}
+
+// ---- LIFF 初始化 ----
+async function initLiff() {
+  try {
+    await liff.init({liffId: LIFF_ID});
+    if (!liff.isLoggedIn()) { liff.login(); return; }
+    var p = await liff.getProfile();
+    userId = p.userId; userName = p.displayName;
+    document.getElementById('uname').textContent = p.displayName;
+    document.getElementById('uid').textContent = 'ID: '+p.userId.slice(0,12)+'...';
+    if (p.pictureUrl) document.getElementById('avbox').innerHTML = '<img src="'+p.pictureUrl+'" alt="av"/>';
+    else document.getElementById('avini').textContent = p.displayName.slice(0,1);
+  } catch(e) {
+    userId = 'guest_test'; userName = '訪客';
+    document.getElementById('uname').textContent = '訪客（測試模式）';
+    document.getElementById('uid').textContent = userId;
+    document.getElementById('avini').textContent = '訪';
+    document.getElementById('gbanner').style.display = 'block';
+  }
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  try { await loadToday(); } catch(e) {}
+  try { await loadHistory(); } catch(e) {}
+  await runVerify();
+}
+
+initLiff();
+</script>
+</body>
+</html>
