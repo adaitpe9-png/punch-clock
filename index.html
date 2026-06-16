@@ -72,14 +72,14 @@ body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text)
 <div id="loading" class="loading">載入中...</div>
 <div id="app" style="display:none">
   <div class="header">
-    <div class="htop"><div class="hlogo">📋 打卡系統</div><div class="hclk" id="clk"></div></div>
+    <div class="htop"><div class="hlogo">📋 等日初☕️打卡系統</div><div class="hclk" id="clk"></div></div>
     <div class="hdate" id="dt"></div>
   </div>
   <div class="avwrap">
     <div class="av" id="avbox"><span id="avini"></span></div>
     <div><div class="uname" id="uname">載入中...</div><div class="uid" id="uid"></div></div>
   </div>
-  <div class="gbanner" id="gbanner">⚠️ 非 LINE 環境（測試模式）</div>
+  <div class="gbanner" id="gbanner">⚠️ 奧客退散！台幣進帳💰 </div>
   <div class="vrow">
     <div class="vc checking" id="vc-gps">
       <div class="vcl">📍 GPS 定位</div>
@@ -250,7 +250,7 @@ function checkGPS() {
 // ---- WiFi ----
 function checkWifi() {
   var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  if (!c) return {ok:true, msg:'連線中 ✓', d:'無法偵測類型（預設通過）'};
+  if (!c) return {ok:true, msg:'連線中 ✓', d:'無法偵測類型'};
   var t = c.type || '';
   if (['cellular','2g','3g','slow-2g'].indexOf(t) >= 0) return {ok:false, msg:'請連接 WiFi ✗', d:'目前使用行動網路'};
   return {ok:true, msg:'WiFi 連線 ✓', d:t?'連線類型：'+t:'已連接網路'};
