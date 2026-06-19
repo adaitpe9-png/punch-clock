@@ -69,17 +69,17 @@ body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text)
 </style>
 </head>
 <body>
-<div id="loading" class="loading">載入中...</div>
+<div id="loading" class="loading">...</div>
 <div id="app" style="display:none">
   <div class="header">
-    <div class="htop"><div class="hlogo">📋 打卡系統</div><div class="hclk" id="clk"></div></div>
+    <div class="htop"><div class="hlogo">📋 喬伊® 打卡系統</div><div class="hclk" id="clk"></div></div>
     <div class="hdate" id="dt"></div>
   </div>
   <div class="avwrap">
     <div class="av" id="avbox"><span id="avini"></span></div>
-    <div><div class="uname" id="uname">載入中...</div><div class="uid" id="uid"></div></div>
+    <div><div class="uname" id="uname">載入中⇢</div><div class="uid" id="uid"></div></div>
   </div>
-  <div class="gbanner" id="gbanner">⚠️ 非 LINE 環境（測試模式）</div>
+  <div class="gbanner" id="gbanner">💪奧客🦹🏿退散！台幣💵入帳</div>
   <div class="vrow">
     <div class="vc checking" id="vc-gps">
       <div class="vcl" id="gps-l">📍 GPS 定位</div>
@@ -127,8 +127,8 @@ const TZ       = 'Asia/Taipei';
 // 多門市設定：系統會自動偵測員工在哪一家店範圍內
 const STORES = [
   { name: '辦公室', lat: 24.6693505, lng: 121.7835167, radius: 200 },
-  { name: 'A店（蘇澳）', lat: 24.5849653, lng: 121.8716239, radius: 150 },
-  { name: 'B店（壯圍）', lat: 24.7754754, lng: 121.8157713, radius: 150 }
+  { name: 'A店（蘇澳-喬伊吹吹風）', lat: 24.5849653, lng: 121.8716239, radius: 150 },
+  { name: 'B店（壯圍-等日初）', lat: 24.7754754, lng: 121.8157713, radius: 150 }
 ];
 // ============================================================
 
