@@ -72,17 +72,17 @@ body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text)
 <div id="loading" class="loading">載入中...</div>
 <div id="app" style="display:none">
   <div class="header">
-    <div class="htop"><div class="hlogo">📋 等日初☕️打卡系統</div><div class="hclk" id="clk"></div></div>
+    <div class="htop"><div class="hlogo">📋 打卡系統</div><div class="hclk" id="clk"></div></div>
     <div class="hdate" id="dt"></div>
   </div>
   <div class="avwrap">
     <div class="av" id="avbox"><span id="avini"></span></div>
     <div><div class="uname" id="uname">載入中...</div><div class="uid" id="uid"></div></div>
   </div>
-  <div class="gbanner" id="gbanner">⚠️ 奧客退散！台幣進帳💰 </div>
+  <div class="gbanner" id="gbanner">⚠️ 非 LINE 環境（測試模式）</div>
   <div class="vrow">
     <div class="vc checking" id="vc-gps">
-      <div class="vcl">📍 GPS 定位</div>
+      <div class="vcl" id="gps-l">📍 GPS 定位</div>
       <div class="vcs" id="gps-s">偵測中...</div>
       <div class="vcd" id="gps-d"></div>
     </div>
@@ -122,15 +122,20 @@ body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text)
 // ============================================================
 const LIFF_ID = '2010418661-OmF2lZI5';
 const API_URL  = 'https://script.google.com/macros/s/AKfycbwX6xfcT3uVgltUXRFnVy-05mUm98jaSInPq88fcyiLrQ01eK8iHCDaiwCMHin_z1nu/exec';
-const CO_LAT   = 24.6693505;
-const CO_LNG   = 121.7835167;
-const RADIUS   = 200;
 const TZ       = 'Asia/Taipei';
+
+// 多門市設定：系統會自動偵測員工在哪一家店範圍內
+const STORES = [
+  { name: '辦公室', lat: 24.6693505, lng: 121.7835167, radius: 200 },
+  { name: 'A店（蘇澳）', lat: 24.5849653, lng: 121.8716239, radius: 150 },
+  { name: 'B店（壯圍）', lat: 24.7754754, lng: 121.8157713, radius: 150 }
+];
 // ============================================================
 
 let userId = null, userName = '';
 let gpsOk = false, wifiOk = false;
 let todayCache = null;
+let hasOpenShift = false;
 
 // ---- 時間工具 ----
 function pad(n) { return String(n).padStart(2,'0'); }
@@ -229,19 +234,46 @@ function api(action, extra) {
   });
 }
 
-// ---- GPS ----
+// ---- 計算距離（公尺）----
+function distM(la1, lo1, la2, lo2) {
+  var R = 6371000;
+  var dLa = (la2-la1)*Math.PI/180, dLo = (lo2-lo1)*Math.PI/180;
+  var a = Math.sin(dLa/2)*Math.sin(dLa/2) + Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLo/2)*Math.sin(dLo/2);
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+}
+
+// ---- GPS：自動偵測符合範圍的門市 ----
+let detectedStore = null;
+
 function checkGPS() {
   return new Promise(function(resolve) {
     if (!navigator.geolocation) { resolve({ok:false, msg:'不支援 GPS ✗', d:''}); return; }
     navigator.geolocation.getCurrentPosition(function(pos) {
-      var R=6371000, la1=pos.coords.latitude, lo1=pos.coords.longitude;
-      var dLa=(CO_LAT-la1)*Math.PI/180, dLo=(CO_LNG-lo1)*Math.PI/180;
-      var a=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(la1*Math.PI/180)*Math.cos(CO_LAT*Math.PI/180)*Math.sin(dLo/2)*Math.sin(dLo/2);
-      var m=Math.round(R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)));
-      var ok = m <= RADIUS;
-      resolve({ok:ok, msg:ok?'位置驗證通過 ✓':'超出範圍 ✗', d:'距公司 '+m+' 公尺（上限 '+RADIUS+' 公尺）'});
+      var la1 = pos.coords.latitude, lo1 = pos.coords.longitude;
+      var best = null, bestDist = Infinity;
+
+      for (var i = 0; i < STORES.length; i++) {
+        var s = STORES[i];
+        var d = distM(la1, lo1, s.lat, s.lng);
+        if (d <= s.radius && d < bestDist) { best = s; bestDist = d; }
+      }
+
+      if (best) {
+        detectedStore = best.name;
+        resolve({ok:true, msg:'位置驗證通過 ✓', d:'偵測到門市：'+best.name+'（距離 '+bestDist+' 公尺）'});
+      } else {
+        // 找最近的門市，顯示距離供參考
+        var nearest = null, nearestDist = Infinity;
+        for (var j = 0; j < STORES.length; j++) {
+          var dd = distM(la1, lo1, STORES[j].lat, STORES[j].lng);
+          if (dd < nearestDist) { nearestDist = dd; nearest = STORES[j]; }
+        }
+        detectedStore = null;
+        resolve({ok:false, msg:'超出範圍 ✗', d:'距'+nearest.name+' '+nearestDist+' 公尺（上限 '+nearest.radius+' 公尺）'});
+      }
     }, function(err) {
       var em = {1:'請允許位置權限', 2:'無法取得位置', 3:'定位逾時'};
+      detectedStore = null;
       resolve({ok:false, msg:'定位失敗 ✗', d:em[err.code]||''});
     }, {enableHighAccuracy:true, timeout:10000, maximumAge:0});
   });
@@ -250,7 +282,7 @@ function checkGPS() {
 // ---- WiFi ----
 function checkWifi() {
   var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  if (!c) return {ok:true, msg:'連線中 ✓', d:'無法偵測類型'};
+  if (!c) return {ok:true, msg:'連線中 ✓', d:'無法偵測類型（預設通過）'};
   var t = c.type || '';
   if (['cellular','2g','3g','slow-2g'].indexOf(t) >= 0) return {ok:false, msg:'請連接 WiFi ✗', d:'目前使用行動網路'};
   return {ok:true, msg:'WiFi 連線 ✓', d:t?'連線類型：'+t:'已連接網路'};
@@ -264,9 +296,8 @@ function setVC(id, state, msg, d) {
 
 function updateBtns() {
   var can = gpsOk && wifiOk;
-  var active = todayCache && todayCache.filter(function(r){return r.inTime && !r.outTime;})[0];
-  document.getElementById('btn-in').disabled = !can || !!active;
-  document.getElementById('btn-out').disabled = !can || !active;
+  document.getElementById('btn-in').disabled  = !can || hasOpenShift;
+  document.getElementById('btn-out').disabled = !can || !hasOpenShift;
 }
 
 async function runVerify() {
@@ -283,6 +314,7 @@ async function runVerify() {
 
   var gps = await checkGPS();
   gpsOk = gps.ok;
+  document.getElementById('gps-l').textContent = detectedStore ? ('📍 '+detectedStore) : '📍 GPS 定位';
   setVC('gps', gps.ok?'pass':'fail', gps.msg, gps.d);
 
   btn.textContent = '🔄 重新驗證'; btn.disabled = false;
@@ -302,45 +334,30 @@ async function punch(type) {
     if (type === 'in') {
       if (!todayCache) todayCache = [];
       todayCache.push({date:today, inTime:timeStr, outTime:'', hours:''});
+      hasOpenShift = true;
       renderStatus();
       updateBtns();
-      showMsg('✓ 上班打卡成功！'+timeStr.slice(0,5)+'\n📍 GPS ✓  📶 WiFi ✓', 'ok');
+      showMsg('✓ 上班打卡成功！'+timeStr.slice(0,5)+'\n📍 '+(detectedStore||'GPS')+' ✓  📶 WiFi ✓', 'ok');
       try {
-        var r = await api('punchIn', {gps:String(gpsOk), wifi:String(wifiOk)});
+        var r = await api('punchIn', {gps:String(gpsOk), wifi:String(wifiOk), store:detectedStore||''});
         if (!r.success) showMsg('⚠️ 儲存失敗：'+r.message, 'warn');
       } catch(e) { showMsg('⚠️ 網路異常，資料可能未儲存', 'warn'); }
 
     } else {
-      var active = null;
-      if (todayCache) {
-        for (var i = 0; i < todayCache.length; i++) {
-          if (todayCache[i].inTime && !todayCache[i].outTime) { active = todayCache[i]; break; }
-        }
-      }
-      if (!active) {
-        showMsg('🔄 重新載入記錄...', 'warn');
-        await loadToday();
-        if (todayCache) {
-          for (var j = 0; j < todayCache.length; j++) {
-            if (todayCache[j].inTime && !todayCache[j].outTime) { active = todayCache[j]; break; }
-          }
-        }
-      }
-      if (!active) { showMsg('❌ 找不到上班記錄', 'err'); return; }
-
-      var inParts = active.inTime.split(':');
-      var inDate = new Date(today);
-      inDate.setHours(+inParts[0], +inParts[1], +(inParts[2]||0));
-      var hrs = ((now - inDate) / 3600000).toFixed(1);
-      active.outTime = timeStr;
-      active.hours = hrs;
-      renderStatus();
-      updateBtns();
-      showMsg('✓ 下班打卡成功！工時 '+hrs+' 小時\n📍 GPS ✓  📶 WiFi ✓', 'ok');
+      // 下班打卡：直接呼叫後端（後端會自動找最近一筆未下班記錄，支援跨夜班）
+      showMsg('⏳ 下班打卡處理中...', 'warn');
       try {
-        var r2 = await api('punchOut', {gps:String(gpsOk), wifi:String(wifiOk)});
-        if (!r2.success) showMsg('⚠️ 儲存失敗：'+r2.message, 'warn');
-      } catch(e) { showMsg('⚠️ 網路異常，資料可能未儲存', 'warn'); }
+        var r2 = await api('punchOut', {gps:String(gpsOk), wifi:String(wifiOk), store:detectedStore||''});
+        if (r2.success) {
+          showMsg('✓ 下班打卡成功！工時 '+r2.hours+' 小時\n📍 '+(detectedStore||'GPS')+' ✓  📶 WiFi ✓', 'ok');
+          await loadToday();
+          await loadHistory();
+        } else {
+          showMsg('❌ '+r2.message, 'err');
+        }
+      } catch(e) {
+        showMsg('❌ 網路異常：'+e.message, 'err');
+      }
     }
   } catch(err) {
     showMsg('❌ 錯誤：'+err.message, 'err');
@@ -351,7 +368,11 @@ async function punch(type) {
 async function loadToday() {
   try {
     var result = await api('getToday');
-    if (result.success) { todayCache = result.records; renderStatus(); }
+    if (result.success) {
+      todayCache = result.records;
+      hasOpenShift = !!result.hasOpenShift;
+      renderStatus();
+    }
   } catch(e) {}
 }
 
@@ -373,7 +394,16 @@ function renderStatus() {
     if (records[i].inTime && !records[i].outTime) active = records[i];
     last = records[i];
   }
+  // 若今天沒有記錄，但有跨夜未下班的班（昨天上班，現在還沒下班）
   var bdg = document.getElementById('stbdg');
+  if (!active && hasOpenShift) {
+    bdg.className = 'stbdg working';
+    document.getElementById('sttxt').textContent = '上班中（跨夜班）';
+    document.getElementById('t-in').textContent = '昨日';
+    document.getElementById('t-out').textContent = '--:--';
+    document.getElementById('t-hrs').textContent = '計算中';
+    return;
+  }
   bdg.className = 'stbdg ' + (active ? 'working' : records.length ? 'done' : 'none');
   document.getElementById('sttxt').textContent = active ? '上班中' : records.length ? '已下班' : '尚未打卡';
   document.getElementById('t-in').textContent = last ? fmtTime(last.inTime) : '--:--';
@@ -409,7 +439,8 @@ function renderHistory(records) {
     var hrs = (rec.outTime && rec.inTime) ? diffH(rec.inTime, rec.outTime).toFixed(1)+' h' : '--';
     var bc = rec.outTime ? 'done' : 'working';
     var bt = rec.outTime ? '完成' : '上班中';
-    html += '<div class="rcard"><div class="rtop"><div class="rdate">'+fmtDate(rec.date)+'</div><div class="rbdg '+bc+'">'+bt+'</div></div><div class="rtimes"><span>上班 <strong>'+fmtTime(rec.inTime)+'</strong></span><span>下班 <strong>'+(rec.outTime?fmtTime(rec.outTime):'--:--')+'</strong></span><span>工時 <strong>'+hrs+'</strong></span></div></div>';
+    var storeTag = rec.store ? '<span style="font-size:10px;background:#EAF2FF;color:#1A73E8;padding:2px 8px;border-radius:20px;font-weight:600;margin-left:6px">📍'+rec.store+'</span>' : '';
+    html += '<div class="rcard"><div class="rtop"><div class="rdate">'+fmtDate(rec.date)+storeTag+'</div><div class="rbdg '+bc+'">'+bt+'</div></div><div class="rtimes"><span>上班 <strong>'+fmtTime(rec.inTime)+'</strong></span><span>下班 <strong>'+(rec.outTime?fmtTime(rec.outTime):'--:--')+'</strong></span><span>工時 <strong>'+hrs+'</strong></span></div></div>';
   }
   list.innerHTML = html;
 }
