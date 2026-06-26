@@ -172,10 +172,11 @@ function fmtTime(t) {
 function diffH(inT, outT) {
   try {
     const base = todayStr();
-    return ((new Date(base + ' ' + outT) - new Date(base + ' ' + inT)) / 3600000);
+    const h = (new Date(base + ' ' + outT) - new Date(base + ' ' + inT)) / 3600000;
+    if (h < 0) return 0; // 沒有跨夜班：異常一律不計入
+    return h;
   } catch(e) { return 0; }
 }
-
 // ---- 時鐘 ----
 setInterval(function() {
   const d = twNow();
