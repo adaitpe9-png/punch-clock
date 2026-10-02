@@ -66,6 +66,26 @@ body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text)
 .loading{text-align:center;padding:60px 20px;color:var(--muted);font-size:14px}
 .apibtn{display:block;width:calc(100% - 32px);margin:10px 16px 0;padding:10px;border:1.5px dashed #ccc;border-radius:12px;background:#fff;font-size:13px;color:#6B7280;cursor:pointer;text-align:center}
 #test-result{margin:6px 16px 0;font-size:12px;color:#6B7280;text-align:center}
+.sync-warning{margin:12px 16px 0;padding:12px 14px;background:#FFF7E6;border:1px solid #FDE68A;border-radius:12px;color:#92400E;font-size:13px;line-height:1.6}
+.sync-warning button{margin-top:8px;padding:9px 14px;background:#fff;border:1px solid #D97706;border-radius:8px;color:#92400E;font:inherit;font-weight:600;cursor:pointer}
+.manual-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+.manual-overlay[hidden],.sync-warning[hidden]{display:none}
+.manual-panel{width:100%;max-width:420px;max-height:calc(100dvh - 40px);overflow-y:auto;background:#fff;border-radius:20px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.manual-panel h2{font-size:21px;margin-bottom:12px}
+.manual-panel p{font-size:14px;line-height:1.7;margin:10px 0;color:#4B5563}
+.manual-out{padding:12px 14px;border-radius:10px;background:#F3F4F6;font-size:14px;line-height:1.7}
+.manual-out strong{display:block;font-size:17px;color:var(--text)}
+.manual-panel label{display:block;font-size:14px;font-weight:700;margin:18px 0 8px}
+.manual-panel input{display:block;width:100%;min-height:52px;padding:10px 12px;border:1.5px solid #9CA3AF;border-radius:10px;background:#fff;color:var(--text);font:inherit;font-size:20px}
+.manual-panel input:focus,.manual-panel button:focus-visible{outline:3px solid #1A73E8;outline-offset:3px}
+.manual-panel .manual-note{padding:10px 12px;background:#fff2cc;border-radius:10px;color:#6B4D08;font-size:13px}
+.manual-error{min-height:24px;color:#B91C1C;font-size:13px;line-height:1.6;margin-top:10px;white-space:pre-line}
+.manual-actions{display:flex;gap:10px;margin-top:18px}
+.manual-actions button{flex:1;min-height:48px;padding:12px;border:0;border-radius:10px;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+.manual-actions button:disabled{opacity:.5;cursor:wait}
+.manual-cancel{background:#F3F4F6;color:#374151}
+.manual-submit{background:var(--green);color:#fff}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
@@ -110,10 +130,33 @@ body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text)
     <button class="btn bin" id="btn-in" onclick="punch('in')" disabled>↗ 上班打卡</button>
     <button class="btn bout" id="btn-out" onclick="punch('out')" disabled>↙ 下班打卡</button>
   </div>
+  <div id="sync-warning" class="sync-warning" role="status" hidden>
+    <div id="sync-message">尚未取得最新打卡狀態，請先更新後再操作。</div>
+    <button id="sync-retry" type="button" onclick="refreshAttendanceState()">更新狀態</button>
+  </div>
   <button class="apibtn" onclick="testAPI()">🔧 測試 API 連線</button>
   <div id="test-result"></div>
   <div class="sectitle">最近打卡記錄</div>
   <div class="rlist" id="rlist"><div style="text-align:center;color:#9CA3AF;font-size:13px;padding:12px">載入中...</div></div>
+</div>
+
+<div id="manual-dialog" class="manual-overlay" role="dialog" aria-modal="true" aria-labelledby="manual-title" aria-describedby="manual-description" hidden>
+  <div class="manual-panel">
+    <h2 id="manual-title">補填上班時間</h2>
+    <p id="manual-description">上下班打卡間隔未滿 5 分鐘，請輸入今天實際開始上班的時間。</p>
+    <div class="manual-out">本次下班時間<strong id="manual-out-time"></strong></div>
+    <form id="manual-form" onsubmit="submitManualPunchOut(event)" novalidate>
+      <label for="manual-in-time">實際上班時間</label>
+      <input id="manual-in-time" name="manualInTime" type="time" step="60" required autocomplete="off" aria-describedby="manual-hint manual-error" />
+      <p id="manual-hint">使用 24 小時制，例如 09:30。請填寫畫面日期當天的時間。</p>
+      <p class="manual-note">補填的上班時間會標成黃色，供管理員核對；下班時間會保留本次打卡時間。</p>
+      <div id="manual-error" class="manual-error" role="alert" aria-live="assertive"></div>
+      <div class="manual-actions">
+        <button id="manual-cancel" class="manual-cancel" type="button" onclick="cancelManualPunchOut()">取消</button>
+        <button id="manual-submit" class="manual-submit" type="submit">確認補填並下班</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <script>
@@ -136,6 +179,11 @@ let userId = null, userName = '';
 let gpsOk = false, wifiOk = false;
 let todayCache = null;
 let hasOpenShift = false;
+let isPunchBusy = false;
+let manualPending = null;
+let attendanceNeedsRefresh = false;
+let apiRequestSeq = 0;
+let manualPreviousFocus = null;
 
 // ---- 時間工具 ----
 function pad(n) { return String(n).padStart(2,'0'); }
@@ -201,7 +249,7 @@ function showMsg(t, type) {
 function api(action, extra) {
   extra = extra || {};
   return new Promise(function(resolve, reject) {
-    var cbName = '_cb' + Date.now();
+    var cbName = '_cb' + Date.now() + '_' + (++apiRequestSeq);
     var params = 'action='+encodeURIComponent(action)+'&userId='+encodeURIComponent(userId||'')+'&userName='+encodeURIComponent(userName||'')+'&callback='+cbName;
     var keys = Object.keys(extra);
     for (var i = 0; i < keys.length; i++) {
@@ -296,9 +344,12 @@ function setVC(id, state, msg, d) {
 }
 
 function updateBtns() {
-  var can = gpsOk && wifiOk;
+  var can = !!userId && gpsOk && wifiOk && !isPunchBusy && !manualPending && !attendanceNeedsRefresh;
   document.getElementById('btn-in').disabled  = !can || hasOpenShift;
   document.getElementById('btn-out').disabled = !can || !hasOpenShift;
+  document.getElementById('manual-submit').disabled = isPunchBusy || !manualPending || !!manualPending.terminal;
+  document.getElementById('manual-cancel').disabled = isPunchBusy;
+  document.getElementById('manual-in-time').disabled = isPunchBusy || !!(manualPending && manualPending.terminal);
 }
 
 async function runVerify() {
@@ -324,46 +375,203 @@ async function runVerify() {
 
 // ---- 打卡 ----
 async function punch(type) {
-  showMsg('⏳ 打卡中...', 'warn');
+  if (isPunchBusy || manualPending || attendanceNeedsRefresh) return;
+  if (!userId || !gpsOk || !wifiOk) { showMsg('⚠️ 請先通過 GPS 與 WiFi 驗證', 'warn'); return; }
+  if ((type === 'in' && hasOpenShift) || (type === 'out' && !hasOpenShift)) return;
+  isPunchBusy = true;
+  updateBtns();
+  showMsg('⏳ 打卡處理中...', 'warn');
   try {
-    if (!gpsOk || !wifiOk) { showMsg('⚠️ 請先通過 GPS 與 WiFi 驗證', 'warn'); return; }
-
-    var now = twNow();
-    var timeStr = pad(now.getHours())+':'+pad(now.getMinutes())+':'+pad(now.getSeconds());
-    var today = todayStr();
-
     if (type === 'in') {
-      if (!todayCache) todayCache = [];
-      todayCache.push({date:today, inTime:timeStr, outTime:'', hours:''});
-      hasOpenShift = true;
-      renderStatus();
-      updateBtns();
-      showMsg('✓ 上班打卡成功！'+timeStr.slice(0,5)+'\n📍 '+(detectedStore||'GPS')+' ✓  📶 WiFi ✓', 'ok');
-      try {
-        var r = await api('punchIn', {gps:String(gpsOk), wifi:String(wifiOk), store:detectedStore||''});
-        if (!r.success) showMsg('⚠️ 儲存失敗：'+r.message, 'warn');
-      } catch(e) { showMsg('⚠️ 網路異常，資料可能未儲存', 'warn'); }
-
+      // 收到成功回覆才顯示完成，避免網路失敗時產生假的上班狀態。
+      var r = await api('punchIn', {gps:String(gpsOk), wifi:String(wifiOk), store:detectedStore||''});
+      if (r.success) {
+        hasOpenShift = true;
+        if (!todayCache) todayCache = [];
+        todayCache.push({date:r.date || todayStr(), inTime:r.inTime, outTime:'', hours:'', store:detectedStore||''});
+        renderStatus();
+        showMsg('✓ 上班打卡成功！'+fmtTime(r.inTime)+'\n📍 '+(detectedStore||'GPS')+' ✓  📶 WiFi ✓', 'ok');
+        await refreshAfterCompletedPunch('上班');
+      } else {
+        showMsg('❌ '+(r.message || '上班打卡未完成'), 'err');
+        await loadToday();
+      }
     } else {
-      // 下班打卡：直接呼叫後端（後端會自動找最近一筆未下班記錄，支援跨夜班）
-      showMsg('⏳ 下班打卡處理中...', 'warn');
-      try {
-        var r2 = await api('punchOut', {gps:String(gpsOk), wifi:String(wifiOk), store:detectedStore||''});
-        if (r2.success) {
-          showMsg('✓ 下班打卡成功！工時 '+r2.hours+' 小時\n📍 '+(detectedStore||'GPS')+' ✓  📶 WiFi ✓', 'ok');
-          await loadToday();
-          await loadHistory();
-        } else {
-          showMsg('❌ '+r2.message, 'err');
-        }
-      } catch(e) {
-        showMsg('❌ 網路異常：'+e.message, 'err');
+      var r2 = await api('punchOut', {gps:String(gpsOk), wifi:String(wifiOk), store:detectedStore||''});
+      if (r2.success) {
+        await completePunchOut(r2);
+      } else if (r2.needsManualInTime && r2.manualToken) {
+        openManualPunchOut(r2);
+      } else {
+        showMsg('❌ '+(r2.message || '下班打卡未完成'), 'err');
       }
     }
   } catch(err) {
-    showMsg('❌ 錯誤：'+err.message, 'err');
+    requireAttendanceRefresh('打卡回覆未收到，無法確認是否成功。請先更新狀態，避免重複打卡。');
+    showMsg('⚠️ 網路異常：'+err.message+'。請先更新打卡狀態。', 'warn');
+  } finally {
+    isPunchBusy = false;
+    updateBtns();
+    if (manualPending) document.getElementById('manual-in-time').focus();
   }
 }
+
+// ---- 未滿 5 分鐘：人工補填對話框 ----
+function openManualPunchOut(result) {
+  manualPending = {manualToken:result.manualToken, recordId:result.recordId, date:result.date, outTime:result.outTime, terminal:false};
+  manualPreviousFocus = document.activeElement;
+  document.getElementById('manual-out-time').textContent = result.date + ' ' + result.outTime;
+  document.getElementById('manual-in-time').value = '';
+  document.getElementById('manual-in-time').removeAttribute('aria-invalid');
+  document.getElementById('manual-error').textContent = '';
+  document.getElementById('manual-cancel').textContent = '取消';
+  document.getElementById('manual-submit').textContent = '確認補填並下班';
+  document.getElementById('manual-dialog').hidden = false;
+  document.getElementById('app').inert = true;
+  document.body.style.overflow = 'hidden';
+  document.querySelectorAll('.x-toast').forEach(function (toast) { toast.remove(); });
+  updateBtns();
+}
+
+function closeManualPunchOut() {
+  manualPending = null;
+  document.getElementById('manual-dialog').hidden = true;
+  document.getElementById('app').inert = false;
+  document.body.style.overflow = '';
+  updateBtns();
+  if (manualPreviousFocus && !manualPreviousFocus.disabled) manualPreviousFocus.focus();
+  manualPreviousFocus = null;
+}
+
+function manualError(message, terminal) {
+  document.getElementById('manual-error').textContent = message;
+  document.getElementById('manual-in-time').setAttribute('aria-invalid', terminal ? 'false' : 'true');
+  if (terminal && manualPending) {
+    manualPending.terminal = true;
+    document.getElementById('manual-cancel').textContent = '關閉並更新狀態';
+  }
+  updateBtns();
+}
+
+async function submitManualPunchOut(event) {
+  if (event) event.preventDefault();
+  if (isPunchBusy || !manualPending || manualPending.terminal) return;
+  var input = document.getElementById('manual-in-time');
+  var time = input.value;
+  var match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time);
+  if (!match) { manualError('請輸入有效的 24 小時制上班時間，例如 09:30。'); input.focus(); return; }
+  var outParts = manualPending.outTime.split(':').map(Number);
+  var manualSec = Number(match[1]) * 3600 + Number(match[2]) * 60;
+  var outSec = outParts[0] * 3600 + outParts[1] * 60 + (outParts[2] || 0);
+  if (manualSec >= outSec) { manualError('上班時間必須早於本次下班時間 '+manualPending.outTime+'。'); input.focus(); return; }
+  isPunchBusy = true;
+  document.getElementById('manual-error').textContent = '';
+  input.removeAttribute('aria-invalid');
+  document.getElementById('manual-submit').textContent = '送出中…';
+  updateBtns();
+  try {
+    // 網路失敗時保留原票據；重試不能重新送出一般 punchOut。
+    var result = await api('punchOut', {manualToken:manualPending.manualToken, manualInTime:time});
+    if (result.success) {
+      closeManualPunchOut(); // 已確認成功：先清除票據，狀態更新失敗也不可再次送出。
+      await completePunchOut(result);
+    } else if (result.needsManualInTime) {
+      manualError(result.message || '請修正上班時間後重新送出。');
+    } else {
+      manualError((result.message || '補填未完成。')+'\n請關閉視窗並更新今日狀態，確認是否已下班。', true);
+    }
+  } catch(error) {
+    manualError('未收到送出結果：'+error.message+'。\n已保留本次下班時間，請按「再次確認送出」重試。');
+    document.getElementById('manual-submit').textContent = '再次確認送出';
+  } finally {
+    isPunchBusy = false;
+    if (document.getElementById('manual-submit').textContent === '送出中…') document.getElementById('manual-submit').textContent = '確認補填並下班';
+    updateBtns();
+    if (manualPending) document.getElementById(manualPending.terminal ? 'manual-cancel' : 'manual-in-time').focus();
+  }
+}
+
+async function cancelManualPunchOut() {
+  if (isPunchBusy || !manualPending) return;
+  isPunchBusy = true;
+  updateBtns();
+  try {
+    if (!manualPending.terminal) {
+      var result = await api('punchOut', {manualToken:manualPending.manualToken, cancelManual:true});
+      if (result.success) {
+        closeManualPunchOut();
+        await completePunchOut(result);
+        return;
+      }
+      if (!result.cancelled && result.needsManualInTime) {
+        manualError(result.message || '尚未取消，請再試一次。');
+        return;
+      }
+    }
+    closeManualPunchOut();
+    showMsg('已關閉補填，正在更新今日打卡狀態。', 'warn');
+    if (!await loadToday()) requireAttendanceRefresh('暫時無法取得今日狀態，請更新後確認是否已下班。');
+    await loadHistory();
+  } catch(error) {
+    manualError('取消時連線失敗：'+error.message+'。\n視窗已保留，請再次按「取消」。');
+  } finally {
+    isPunchBusy = false;
+    updateBtns();
+  }
+}
+
+async function completePunchOut(result) {
+  // 先採用已確認成功的結果；後續讀取失敗不代表下班失敗。
+  hasOpenShift = false;
+  for (var i = (todayCache || []).length - 1; i >= 0; i--) {
+    if (!todayCache[i].outTime) {
+      if (result.inTime) todayCache[i].inTime = result.inTime;
+      todayCache[i].outTime = result.outTime;
+      todayCache[i].hours = result.hours;
+      break;
+    }
+  }
+  renderStatus();
+  showMsg('✓ 下班打卡成功！工時 '+result.hours+' 小時'+(result.manualInTime ? '\n補填的上班時間已標黃，待管理員核對。' : ''), 'ok');
+  await refreshAfterCompletedPunch('下班');
+}
+
+function requireAttendanceRefresh(message) {
+  attendanceNeedsRefresh = true;
+  document.getElementById('sync-message').textContent = message;
+  document.getElementById('sync-warning').hidden = false;
+  updateBtns();
+}
+
+async function refreshAfterCompletedPunch(label) {
+  if (!await loadToday()) requireAttendanceRefresh(label+'打卡已完成，但畫面資料尚未更新。請更新狀態，無須再次打卡。');
+  await loadHistory();
+}
+
+async function refreshAttendanceState() {
+  if (isPunchBusy || manualPending) return;
+  isPunchBusy = true;
+  document.getElementById('sync-retry').disabled = true;
+  updateBtns();
+  try {
+    if (await loadToday()) { await loadHistory(); showMsg('已更新打卡狀態。', 'ok'); }
+    else requireAttendanceRefresh('仍無法取得今日狀態，請確認網路後再按「更新狀態」。');
+  } finally {
+    isPunchBusy = false;
+    document.getElementById('sync-retry').disabled = false;
+    updateBtns();
+  }
+}
+
+document.getElementById('manual-dialog').addEventListener('keydown', function (event) {
+  if (event.key === 'Escape') { event.preventDefault(); if (!isPunchBusy) cancelManualPunchOut(); }
+  if (event.key !== 'Tab') return;
+  var controls = Array.from(this.querySelectorAll('input:not(:disabled),button:not(:disabled)'));
+  if (!controls.length) { event.preventDefault(); return; }
+  var first = controls[0], last = controls[controls.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+});
 
 // ---- 載入今日資料 ----
 async function loadToday() {
@@ -372,9 +580,14 @@ async function loadToday() {
     if (result.success) {
       todayCache = result.records;
       hasOpenShift = !!result.hasOpenShift;
+      attendanceNeedsRefresh = false;
+      document.getElementById('sync-warning').hidden = true;
       renderStatus();
+      updateBtns();
+      return true;
     }
   } catch(e) {}
+  return false;
 }
 
 // ---- 載入歷史記錄 ----
@@ -487,7 +700,7 @@ async function initLiff() {
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-  try { await loadToday(); } catch(e) {}
+  if (!await loadToday()) requireAttendanceRefresh('無法載入今日打卡狀態，請先更新狀態後再打卡。');
   try { await loadHistory(); } catch(e) {}
   await runVerify();
 }
