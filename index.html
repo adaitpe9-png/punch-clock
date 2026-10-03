@@ -4,6 +4,11 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>打卡系統</title>
+<link rel="manifest" href="/punch-clock/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/punch-clock/icon-192.png">
+<meta name="theme-color" content="#06C755">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="喬伊打卡">
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>
 :root{--green:#06C755;--gd:#049440;--gl:#E8F8EE;--red:#E53935;--rl:#FEECEC;--blue:#1A73E8;--bl:#EAF2FF;--bg:#F5F6F8;--card:#fff;--text:#1A1A2E;--muted:#6B7280;--border:#E5E7EB;--r:16px}
@@ -86,6 +91,16 @@ body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text)
 .manual-cancel{background:#F3F4F6;color:#374151}
 .manual-submit{background:var(--green);color:#fff}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+.push-card{margin:16px 16px 0;padding:18px 20px;background:var(--card);border:1px solid var(--border);border-radius:var(--r)}
+.push-card h2{font-size:16px;margin-bottom:8px}
+.push-card p{font-size:13px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}
+.push-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.push-actions button{min-height:44px;padding:10px 14px;border:1px solid var(--gd);border-radius:10px;background:white;color:var(--gd);font-size:14px;font-weight:600;cursor:pointer}
+.push-actions button:first-child{background:var(--gd);color:white}
+.push-actions button:disabled{opacity:.5;cursor:wait}
+.push-actions button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+.push-card[hidden],.push-actions[hidden],.push-actions button[hidden]{display:none}
+.push-card .push-note{font-size:12px;margin-top:10px}
 </style>
 </head>
 <body>
@@ -136,6 +151,15 @@ body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text)
   </div>
   <button class="apibtn" onclick="testAPI()">🔧 測試 API 連線</button>
   <div id="test-result"></div>
+  <section class="push-card" id="push-card" aria-labelledby="push-title" hidden>
+    <h2 id="push-title">🔔 下班提醒 · 18:10</h2>
+    <p id="push-status" role="status" aria-live="polite">正在確認手機通知設定…</p>
+    <div class="push-actions" id="push-actions">
+      <button type="button" id="push-toggle" onclick="togglePushReminder()">設定手機通知</button>
+      <button type="button" id="push-test" onclick="testPushReminder()" hidden>傳送測試通知</button>
+    </div>
+    <p class="push-note">通知由 OneSignal 傳送，需允許通知。點通知後仍需自行打卡；排程與手機通知可能稍有延遲。</p>
+  </section>
   <div class="sectitle">最近打卡記錄</div>
   <div class="rlist" id="rlist"><div style="text-align:center;color:#9CA3AF;font-size:13px;padding:12px">載入中...</div></div>
 </div>
@@ -699,11 +723,188 @@ async function initLiff() {
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
+  try { initializePushReminder(); } catch (_) { /* 通知失敗不阻擋打卡載入。 */ }
 
   if (!await loadToday()) requireAttendanceRefresh('無法載入今日打卡狀態，請先更新狀態後再打卡。');
   try { await loadHistory(); } catch(e) {}
   await runVerify();
 }
+
+// 僅管理手機通知；不觸發上下班打卡，也不快取出勤 API。
+const PUSH_REMINDER_PAGE = 'https://adaitpe9-png.github.io/punch-clock/';
+let pushSdk = null, pushSdkLoad = null, pushBusy = false, pushBound = false;
+let pushMode = 'prepare', pushScheduled = false;
+function pushElement(id) { return document.getElementById(id); }
+function pushMessage(text) { pushElement('push-status').textContent = text; }
+function pushRemember(value) {
+  try { localStorage.setItem('attendance-push-ready', value); } catch (_) {}
+}
+function pushEnvironment() {
+  const ua = navigator.userAgent || '';
+  const inLine = /Line\//i.test(ua) || (typeof liff !== 'undefined' && liff.isInClient());
+  const ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  if (inLine) return 'line';
+  if (ios && !standalone) return 'install';
+  if (!window.isSecureContext || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return 'unsupported';
+  return 'ready';
+}
+function initializePushReminder() {
+  pushElement('push-card').hidden = false;
+  const env = pushEnvironment();
+  pushElement('push-actions').hidden = false;
+  if (env === 'line') {
+    pushMode = 'external';
+    pushElement('push-toggle').textContent = '用手機瀏覽器開啟';
+    pushMessage('手機通知需用 Safari 或 Chrome 設定。iPhone 請再將打卡頁「加入主畫面」。');
+    return;
+  }
+  if (env === 'install') {
+    pushElement('push-actions').hidden = true;
+    pushMessage('iPhone／iPad：請使用 iOS 16.4 以上，在瀏覽器點「分享」→「加入主畫面」，再從主畫面的打卡圖示開啟並登入。');
+    return;
+  }
+  if (env === 'unsupported') {
+    pushElement('push-actions').hidden = true;
+    pushMessage('這個瀏覽器目前不支援手機通知。請使用最新版 Safari／Chrome，並關閉無痕模式。');
+    return;
+  }
+  if (!/^U[0-9a-f]{32}$/.test(userId || '')) {
+    pushElement('push-actions').hidden = true;
+    pushMessage('請先使用 LINE 登入，再設定這支手機的提醒。');
+    return;
+  }
+  pushMessage('每天 18:10，當日已上班且尚未下班時提醒。點通知可開啟打卡頁。');
+  try { if (localStorage.getItem('attendance-push-ready') === 'yes') preparePushReminder(); } catch (_) {}
+}
+async function pushPost(action) {
+  const idToken = liff.getIDToken();
+  if (!idToken) throw new Error('請重新登入 LINE；若仍無法設定，請管理員確認 LINE 登入已開啟 openid。');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST', credentials: 'omit', redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify({ action: action, idToken: idToken }), signal: controller.signal
+    });
+    if (!response.ok) throw new Error('無法連接通知設定，請稍後再試。');
+    const result = await response.json();
+    if (!result.success) throw new Error(result.message || '通知設定尚未完成。');
+    return result;
+  } catch (error) {
+    if (error.name === 'AbortError' || error instanceof TypeError) throw new Error('通知設定連線失敗。請稍後再試，或請管理員確認後端已更新部署。');
+    throw error;
+  } finally { clearTimeout(timer); }
+}
+function loadPushSdk() {
+  if (pushSdkLoad) return pushSdkLoad;
+  pushSdkLoad = new Promise((resolve, reject) => {
+    let finished = false;
+    const timer = setTimeout(() => {
+      if (!finished) { finished = true; reject(new Error('通知元件載入逾時，請重新整理後再試。')); }
+    }, 20000);
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    window.OneSignalDeferred.push(sdk => {
+      if (!finished) { finished = true; clearTimeout(timer); resolve(sdk); }
+    });
+    const script = document.createElement('script');
+    script.src = 'https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js';
+    script.defer = true;
+    script.onerror = () => {
+      if (!finished) { finished = true; clearTimeout(timer); reject(new Error('通知元件無法載入，請重新整理後再試。')); }
+    };
+    document.head.appendChild(script);
+  });
+  return pushSdkLoad;
+}
+function renderPushState() {
+  if (!pushSdk || !pushBound) return;
+  const subscription = pushSdk.User.PushSubscription;
+  const allowed = pushSdk.Notifications.permission;
+  const active = allowed && subscription.optedIn && !!subscription.id;
+  pushMode = active ? 'disable' : 'enable';
+  pushElement('push-toggle').textContent = active ? '關閉這支手機的提醒' : '開啟下班提醒';
+  pushElement('push-test').hidden = !active;
+  if (active) {
+    pushRemember('yes');
+    pushMessage(pushScheduled ? '這支手機已開啟提醒。每日 18:10 起檢查，當日已上班、尚未下班才通知。' :
+      '這支手機已開啟通知，可以先測試；管理員尚未啟用每日 18:10 排程。');
+  } else if (Notification.permission === 'denied') {
+    pushMessage('通知權限已被關閉。請到手機或瀏覽器的通知設定允許此網站，再回來開啟提醒。');
+  } else if (allowed && subscription.optedIn) {
+    pushMessage('正在完成手機通知註冊，請稍候。');
+  } else if (allowed) {
+    pushMessage('這支手機的提醒已關閉。需要時可按「開啟下班提醒」。');
+  } else {
+    pushMessage('請按「開啟下班提醒」，並在手機詢問時選擇「允許」。');
+  }
+}
+async function preparePushReminder() {
+  if (pushBusy) return;
+  pushBusy = true; pushElement('push-toggle').disabled = true;
+  pushMessage('正在準備這支手機的通知設定…');
+  try {
+    const config = await pushPost('getWebPushIdentity');
+    if (config.userId !== userId || !/^wp_[A-Za-z0-9_-]{43}$/.test(config.externalId || '')) {
+      throw new Error('LINE 身分不一致，請重新登入後再試。');
+    }
+    const sdk = await loadPushSdk();
+    if (!pushSdk) {
+      await sdk.init({ appId: config.appId,
+        serviceWorkerPath: 'punch-clock/OneSignalSDKWorker.js',
+        serviceWorkerParam: { scope: '/punch-clock/' },
+        notifyButton: { enable: false }, welcomeNotification: { disable: true },
+        promptOptions: { slidedown: { prompts: [{ type: 'push', autoPrompt: false }] } },
+        autoResubscribe: false, persistNotification: false
+      });
+      pushSdk = sdk;
+      sdk.User.PushSubscription.addEventListener('change', renderPushState);
+      sdk.Notifications.addEventListener('permissionChange', renderPushState);
+    }
+    if (!sdk.Notifications.isPushSupported()) throw new Error('這個瀏覽器不支援通知，請改用 Safari／Chrome。');
+    pushBound = false;
+    await sdk.login(config.externalId);
+    pushBound = true; pushScheduled = config.scheduled === true;
+    pushRemember('yes');
+    renderPushState();
+  } catch (error) {
+    pushBound = false; pushMode = 'prepare';
+    pushElement('push-toggle').textContent = '重新設定通知';
+    pushElement('push-test').hidden = true;
+    pushMessage(error.message || '通知設定未完成，請重新整理後再試。');
+  } finally { pushBusy = false; pushElement('push-toggle').disabled = false; }
+}
+async function togglePushReminder() {
+  if (pushBusy) return;
+  if (pushMode === 'external') {
+    try { liff.openWindow({ url: PUSH_REMINDER_PAGE, external: true }); }
+    catch (_) { pushMessage('請複製打卡網址，到 Safari／Chrome 開啟：' + PUSH_REMINDER_PAGE); }
+    return;
+  }
+  if (pushMode === 'prepare') return preparePushReminder();
+  if (!pushSdk || !pushBound) return;
+  pushBusy = true; pushElement('push-toggle').disabled = true;
+  try {
+    if (pushMode === 'disable') await pushSdk.User.PushSubscription.optOut();
+    else {
+      // 在使用者點擊當下要求權限，不在 await 網路請求後才彈出。
+      await pushSdk.User.PushSubscription.optIn();
+    }
+    renderPushState();
+  } catch (_) { pushMessage('通知設定尚未完成，請檢查手機通知權限後再試。'); }
+  finally { pushBusy = false; pushElement('push-toggle').disabled = false; }
+}
+async function testPushReminder() {
+  if (pushBusy || !pushBound || !pushSdk || !pushSdk.User.PushSubscription.optedIn) return;
+  pushBusy = true; pushElement('push-test').disabled = true;
+  try {
+    const result = await pushPost('testWebPushToMe');
+    pushMessage(result.message);
+  } catch (error) { pushMessage(error.message || '通知測試失敗，請稍後再試。'); }
+  finally { pushBusy = false; pushElement('push-test').disabled = false; }
+}
+window.addEventListener('pageshow', () => { if (pushBound) renderPushState(); });
 
 initLiff();
 </script>
